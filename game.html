@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
   <title>数字タッチ</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -15,45 +15,47 @@
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
+      justify-content: flex-start;
+      padding: 12px 8px;
     }
 
     #game-container {
-      width: 660px;
+      width: 100%;
+      max-width: 420px;
     }
 
     #header {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 10px;
-      padding: 0 4px;
+      margin-bottom: 8px;
+      padding: 0 2px;
     }
 
-    #level-display { font-size: 18px; color: #aaa; }
+    #level-display { font-size: 16px; color: #aaa; }
 
     #target-display {
-      font-size: 22px;
+      font-size: 20px;
       font-weight: bold;
       background: #0f3460;
-      padding: 6px 20px;
+      padding: 5px 16px;
       border-radius: 20px;
     }
 
     #time-display {
-      font-size: 22px;
+      font-size: 20px;
       font-weight: bold;
       font-variant-numeric: tabular-nums;
-      min-width: 60px;
+      min-width: 56px;
       text-align: right;
     }
 
     #timer-bar-container {
       width: 100%;
-      height: 10px;
+      height: 8px;
       background: #333;
-      border-radius: 5px;
-      margin-bottom: 10px;
+      border-radius: 4px;
+      margin-bottom: 6px;
       overflow: hidden;
     }
 
@@ -61,14 +63,21 @@
       height: 100%;
       width: 100%;
       background: #00e676;
-      border-radius: 5px;
+      border-radius: 4px;
       transition: background-color 0.4s;
+    }
+
+    #shuffle-info {
+      text-align: center;
+      font-size: 12px;
+      color: #88aacc;
+      margin-bottom: 8px;
     }
 
     #play-area {
       position: relative;
-      width: 660px;
-      height: 440px;
+      width: 100%;
+      aspect-ratio: 3 / 5;
       background: #16213e;
       border-radius: 16px;
       border: 2px solid #0f3460;
@@ -77,11 +86,11 @@
 
     .num-btn {
       position: absolute;
-      width: 60px;
-      height: 60px;
+      width: 50px;
+      height: 50px;
       border-radius: 50%;
       border: 2px solid #1a4a8a;
-      font-size: 20px;
+      font-size: 17px;
       font-weight: bold;
       cursor: pointer;
       background: #0d2c5e;
@@ -91,9 +100,11 @@
       justify-content: center;
       user-select: none;
       transition: left 0.18s ease, top 0.18s ease;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
     }
 
-    .num-btn:hover {
+    .num-btn:active {
       background: #1a5faa;
       border-color: #4a9eff;
       color: #fff;
@@ -130,45 +141,48 @@
       align-items: center;
       justify-content: center;
       border-radius: 14px;
-      gap: 14px;
+      gap: 12px;
+      padding: 24px;
     }
 
     #overlay h2 {
-      font-size: 38px;
+      font-size: 30px;
       letter-spacing: 2px;
     }
 
     #overlay .sub {
-      font-size: 16px;
+      font-size: 14px;
       color: #88aacc;
       text-align: center;
       line-height: 1.8;
     }
 
     #overlay .next-info {
-      font-size: 15px;
+      font-size: 13px;
       color: #aaa;
+      text-align: center;
     }
 
     .action-btn {
       padding: 13px 44px;
-      font-size: 18px;
+      font-size: 17px;
       border: none;
       border-radius: 30px;
       background: #e94560;
       color: #fff;
       cursor: pointer;
       font-weight: bold;
-      margin-top: 8px;
+      margin-top: 6px;
       letter-spacing: 1px;
+      -webkit-tap-highlight-color: transparent;
+      touch-action: manipulation;
     }
 
-    .action-btn:hover { background: #c73050; }
+    .action-btn:active { background: #c73050; }
 
     .best-badge {
       font-size: 13px;
       color: #ffd700;
-      margin-top: -6px;
     }
   </style>
 </head>
@@ -177,17 +191,18 @@
   <div id="header">
     <span id="level-display">Level 1</span>
     <span id="target-display">次: 1</span>
-    <span id="time-display">30.0s</span>
+    <span id="time-display">32.0s</span>
   </div>
   <div id="timer-bar-container">
     <div id="timer-bar"></div>
   </div>
+  <div id="shuffle-info">シャッフル率: 5%</div>
   <div id="play-area">
     <div id="overlay">
       <h2>数字タッチ</h2>
       <p class="sub">
         1から順番に数字をタップしよう！<br>
-        タップするたびに数字の位置がシャッフルされる
+        タップするたびに確率でシャッフル
       </p>
       <button class="action-btn" onclick="startGame()">スタート</button>
     </div>
@@ -195,10 +210,8 @@
 </div>
 
 <script>
-  const AREA_W = 660;
-  const AREA_H = 440;
-  const BTN = 60;
-  const GAP = 8;
+  const BTN  = 50;
+  const GAP  = 8;
   const STEP = BTN + GAP;
 
   let level, maxNum, timeLimitSec, timeLeft;
@@ -207,8 +220,15 @@
   let timerInterval = null;
   let bestLevel = parseInt(localStorage.getItem('numtouch_best') || '0');
 
-  function getMaxNum(lv)   { return 10 + (lv - 1) * 5; }
-  function getTimeLimit(lv){ return Math.max(8, 32 - (lv - 1) * 3); }
+  function getAreaSize() {
+    const el = document.getElementById('play-area');
+    return { w: el.offsetWidth, h: el.offsetHeight };
+  }
+
+  function getMaxNum(lv)    { return 10 + (lv - 1) * 5; }
+  function getTimeLimit(lv) { return Math.max(8, 32 - (lv - 1) * 3); }
+  // Level1=5%, 1レベルごとに+1%, 最大20%
+  function getShuffleProb(lv) { return Math.min(20, 4 + lv); }
 
   function shuffle(arr) {
     const a = [...arr];
@@ -220,15 +240,13 @@
   }
 
   function generatePositions(count) {
-    const cols = Math.floor((AREA_W - GAP) / STEP);
-    const rows = Math.floor((AREA_H - GAP) / STEP);
+    const { w, h } = getAreaSize();
+    const cols = Math.floor((w - GAP) / STEP);
+    const rows = Math.floor((h - GAP) / STEP);
     const all = [];
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        all.push({
-          x: GAP + c * STEP,
-          y: GAP + r * STEP
-        });
+        all.push({ x: GAP + c * STEP, y: GAP + r * STEP });
       }
     }
     return shuffle(all).slice(0, count);
@@ -276,7 +294,9 @@
           levelClear();
         } else {
           document.getElementById('target-display').textContent = `次: ${currentTarget}`;
-          shuffleRemainingPositions();
+          if (Math.random() * 100 < getShuffleProb(level)) {
+            shuffleRemainingPositions();
+          }
         }
       }, 220);
     } else {
@@ -300,6 +320,7 @@
 
     document.getElementById('level-display').textContent  = `Level ${level}`;
     document.getElementById('target-display').textContent = '次: 1';
+    document.getElementById('shuffle-info').textContent   = `シャッフル率: ${getShuffleProb(level)}%`;
     document.getElementById('overlay').style.display      = 'none';
 
     renderNumbers(Array.from({ length: maxNum }, (_, i) => i + 1));
@@ -341,16 +362,17 @@
       localStorage.setItem('numtouch_best', bestLevel);
     }
 
-    const nextLv  = level + 1;
-    const nextNum = getMaxNum(nextLv);
-    const nextSec = getTimeLimit(nextLv);
+    const nextLv   = level + 1;
+    const nextNum  = getMaxNum(nextLv);
+    const nextSec  = getTimeLimit(nextLv);
+    const nextProb = getShuffleProb(nextLv);
 
     const overlay = document.getElementById('overlay');
     overlay.style.display = 'flex';
     overlay.innerHTML = `
       <h2>Level ${level} クリア！</h2>
       <p class="sub">残り時間: ${timeLeft.toFixed(1)}s</p>
-      <p class="next-info">次: ${nextNum}個の数字 / ${nextSec}秒</p>
+      <p class="next-info">次: ${nextNum}個 / ${nextSec}秒<br>シャッフル率: ${nextProb}%</p>
       <button class="action-btn" onclick="goNextLevel()">Level ${nextLv} へ</button>
     `;
     level++;
