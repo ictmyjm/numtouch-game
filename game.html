@@ -243,6 +243,11 @@
   function getShuffleProb(lv) { return Math.min(20, 4 + lv); }
   // Level5=120px/s, 1レベルごとに+20px/s, 上限250px/s
   function getBallSpeed(lv)   { return Math.min(250, 120 + (lv - 5) * 20); }
+  // 数字ごとに色相を24度ずつずらした15色
+  function getBallColor(n) {
+    const h = (n - 1) * 24;
+    return { bg: `hsl(${h},65%,42%)`, border: `hsl(${h},75%,62%)` };
+  }
 
   function shuffle(arr) {
     const a = [...arr];
@@ -276,6 +281,10 @@
       const btn = document.createElement('button');
       btn.className = 'num-btn' + (level >= 5 ? ' physics' : '');
       btn.textContent = n;
+      const { bg, border } = getBallColor(n);
+      btn.style.background   = bg;
+      btn.style.borderColor  = border;
+      btn.style.color        = '#fff';
       btn.style.left = positions[i].x + 'px';
       btn.style.top  = positions[i].y + 'px';
       btn.addEventListener('click', () => onNumberClick(n, btn));
