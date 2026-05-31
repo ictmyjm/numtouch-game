@@ -104,6 +104,11 @@
       touch-action: manipulation;
     }
 
+    /* 物理モード中はCSS transitionを無効化 */
+    .num-btn.physics {
+      transition: none !important;
+    }
+
     .num-btn:active {
       background: #1a5faa;
       border-color: #4a9eff;
@@ -202,7 +207,8 @@
       <h2>数字タッチ</h2>
       <p class="sub">
         1から順番に数字をタップしよう！<br>
-        タップするたびに確率でシャッフル
+        タップするたびに確率でシャッフル<br>
+        Level 5からボールが動き出す
       </p>
       <button class="action-btn" onclick="startGame()">スタート</button>
     </div>
@@ -210,25 +216,33 @@
 </div>
 
 <script>
+  const NUM_COUNT = 15;
   const BTN  = 50;
+  const R    = BTN / 2;
   const GAP  = 8;
   const STEP = BTN + GAP;
 
-  let level, maxNum, timeLimitSec, timeLeft;
+  let level, timeLimitSec, timeLeft;
   let currentTarget, gameActive;
   let buttons = {};
   let timerInterval = null;
   let bestLevel = parseInt(localStorage.getItem('numtouch_best') || '0');
+
+  // 物理演算の状態
+  let physicsMode = false;
+  let balls = [];
+  let animFrame = null;
+  let lastTime = null;
 
   function getAreaSize() {
     const el = document.getElementById('play-area');
     return { w: el.offsetWidth, h: el.offsetHeight };
   }
 
-  function getMaxNum(lv)    { return 10 + (lv - 1) * 5; }
-  function getTimeLimit(lv) { return Math.max(8, 32 - (lv - 1) * 3); }
-  // Level1=5%, 1レベルごとに+1%, 最大20%
+  function getTimeLimit(lv)   { return Math.max(8, 32 - (lv - 1) * 3); }
   function getShuffleProb(lv) { return Math.min(20, 4 + lv); }
+  // Level5=120px/s, 1レベルごとに+20px/s, 上限250px/s
+  function getBallSpeed(lv)   { return Math.min(250, 120 + (lv - 5) * 20); }
 
   function shuffle(arr) {
     const a = [...arr];
@@ -260,7 +274,7 @@
 
     nums.forEach((n, i) => {
       const btn = document.createElement('button');
-      btn.className = 'num-btn';
+      btn.className = 'num-btn' + (level >= 5 ? ' physics' : '');
       btn.textContent = n;
       btn.style.left = positions[i].x + 'px';
       btn.style.top  = positions[i].y + 'px';
@@ -270,27 +284,115 @@
     });
   }
 
+  // ===== シャッフル =====
   function shuffleRemainingPositions() {
-    const remaining = Object.keys(buttons).map(Number);
-    const positions = generatePositions(remaining.length);
-    remaining.forEach((n, i) => {
-      buttons[n].style.left = positions[i].x + 'px';
-      buttons[n].style.top  = positions[i].y + 'px';
-    });
+    if (physicsMode) {
+      // 物理モード: 速度の向きをランダム化（速さは維持）
+      for (const b of balls) {
+        const speed = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+        const angle = Math.random() * Math.PI * 2;
+        b.vx = Math.cos(angle) * speed;
+        b.vy = Math.sin(angle) * speed;
+      }
+    } else {
+      const remaining = Object.keys(buttons).map(Number);
+      const positions = generatePositions(remaining.length);
+      remaining.forEach((n, i) => {
+        buttons[n].style.left = positions[i].x + 'px';
+        buttons[n].style.top  = positions[i].y + 'px';
+      });
+    }
   }
 
+  // ===== 物理演算 =====
+  function initPhysics() {
+    const speed = getBallSpeed(level);
+    balls = Object.keys(buttons).map(n => {
+      const btn = buttons[n];
+      const x = parseFloat(btn.style.left) + R;
+      const y = parseFloat(btn.style.top)  + R;
+      const angle = Math.random() * Math.PI * 2;
+      const v = speed * (0.8 + Math.random() * 0.4);
+      return { n: parseInt(n), x, y, vx: Math.cos(angle) * v, vy: Math.sin(angle) * v };
+    });
+    lastTime = null;
+    animFrame = requestAnimationFrame(physicsTick);
+  }
+
+  function stopPhysics() {
+    if (animFrame) { cancelAnimationFrame(animFrame); animFrame = null; }
+    physicsMode = false;
+    balls = [];
+  }
+
+  function physicsTick(ts) {
+    if (!gameActive) return;
+    if (lastTime === null) lastTime = ts;
+    const dt = Math.min((ts - lastTime) / 1000, 0.05);
+    lastTime = ts;
+
+    const { w, h } = getAreaSize();
+
+    // 位置更新 & 壁との弾性衝突（反発係数1）
+    for (const b of balls) {
+      b.x += b.vx * dt;
+      b.y += b.vy * dt;
+
+      if (b.x - R < 0)   { b.x = R;     b.vx =  Math.abs(b.vx); }
+      if (b.x + R > w)   { b.x = w - R; b.vx = -Math.abs(b.vx); }
+      if (b.y - R < 0)   { b.y = R;     b.vy =  Math.abs(b.vy); }
+      if (b.y + R > h)   { b.y = h - R; b.vy = -Math.abs(b.vy); }
+    }
+
+    // ボール同士の弾性衝突（反発係数1・等質量）
+    for (let i = 0; i < balls.length; i++) {
+      for (let j = i + 1; j < balls.length; j++) {
+        const a = balls[i], b = balls[j];
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const d  = Math.sqrt(dx * dx + dy * dy);
+        if (d < BTN && d > 0) {
+          const nx = dx / d, ny = dy / d;
+          // めり込み解消
+          const ov = (BTN - d) / 2;
+          a.x -= nx * ov; a.y -= ny * ov;
+          b.x += nx * ov; b.y += ny * ov;
+          // 法線方向の速度を交換（等質量弾性衝突）
+          const dot = (a.vx - b.vx) * nx + (a.vy - b.vy) * ny;
+          if (dot > 0) {
+            a.vx -= dot * nx; a.vy -= dot * ny;
+            b.vx += dot * nx; b.vy += dot * ny;
+          }
+        }
+      }
+    }
+
+    // DOM位置を更新
+    for (const b of balls) {
+      const btn = buttons[b.n];
+      if (btn) {
+        btn.style.left = (b.x - R) + 'px';
+        btn.style.top  = (b.y - R) + 'px';
+      }
+    }
+
+    animFrame = requestAnimationFrame(physicsTick);
+  }
+
+  // ===== クリック処理 =====
   function onNumberClick(n, btn) {
     if (!gameActive) return;
 
     if (n === currentTarget) {
       btn.classList.add('correct');
       delete buttons[n];
+      if (physicsMode) balls = balls.filter(b => b.n !== n);
 
       setTimeout(() => {
         btn.remove();
         currentTarget++;
 
-        if (currentTarget > maxNum) {
+        if (currentTarget > NUM_COUNT) {
           levelClear();
         } else {
           document.getElementById('target-display').textContent = `次: ${currentTarget}`;
@@ -306,24 +408,29 @@
     }
   }
 
+  // ===== ゲーム制御 =====
   function startGame() {
     level = 1;
     startLevel();
   }
 
   function startLevel() {
-    maxNum        = getMaxNum(level);
     timeLimitSec  = getTimeLimit(level);
     timeLeft      = timeLimitSec;
     currentTarget = 1;
     gameActive    = true;
+    physicsMode   = level >= 5;
 
+    const prob = getShuffleProb(level);
     document.getElementById('level-display').textContent  = `Level ${level}`;
     document.getElementById('target-display').textContent = '次: 1';
-    document.getElementById('shuffle-info').textContent   = `シャッフル率: ${getShuffleProb(level)}%`;
+    document.getElementById('shuffle-info').textContent   =
+      `シャッフル率: ${prob}%${physicsMode ? ' ⚡ 物理モード' : ''}`;
     document.getElementById('overlay').style.display      = 'none';
 
-    renderNumbers(Array.from({ length: maxNum }, (_, i) => i + 1));
+    renderNumbers(Array.from({ length: NUM_COUNT }, (_, i) => i + 1));
+
+    if (physicsMode) initPhysics();
 
     clearInterval(timerInterval);
     updateTimerDisplay();
@@ -356,6 +463,7 @@
   function levelClear() {
     gameActive = false;
     clearInterval(timerInterval);
+    stopPhysics();
 
     if (level > bestLevel) {
       bestLevel = level;
@@ -363,16 +471,16 @@
     }
 
     const nextLv   = level + 1;
-    const nextNum  = getMaxNum(nextLv);
     const nextSec  = getTimeLimit(nextLv);
     const nextProb = getShuffleProb(nextLv);
+    const nextPhys = nextLv >= 5;
 
     const overlay = document.getElementById('overlay');
     overlay.style.display = 'flex';
     overlay.innerHTML = `
       <h2>Level ${level} クリア！</h2>
       <p class="sub">残り時間: ${timeLeft.toFixed(1)}s</p>
-      <p class="next-info">次: ${nextNum}個 / ${nextSec}秒<br>シャッフル率: ${nextProb}%</p>
+      <p class="next-info">${nextSec}秒 / シャッフル率: ${nextProb}%${nextPhys ? '<br>⚡ 物理モード' : ''}</p>
       <button class="action-btn" onclick="goNextLevel()">Level ${nextLv} へ</button>
     `;
     level++;
@@ -385,12 +493,13 @@
   function gameOver() {
     gameActive = false;
     clearInterval(timerInterval);
+    stopPhysics();
 
     const overlay = document.getElementById('overlay');
     overlay.style.display = 'flex';
     overlay.innerHTML = `
       <h2>ゲームオーバー</h2>
-      <p class="sub">Level ${level} &nbsp;|&nbsp; ${currentTarget - 1} / ${maxNum} 到達</p>
+      <p class="sub">Level ${level} &nbsp;|&nbsp; ${currentTarget - 1} / ${NUM_COUNT} 到達</p>
       <p class="best-badge">ベスト: Level ${bestLevel}</p>
       <button class="action-btn" onclick="startGame()">もう一度</button>
     `;
